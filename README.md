@@ -102,6 +102,74 @@ func (m BasecoinMsg) GetNonce() Nonce {
 
 ## Make context more generic
 
+The current context we push into the application handler looks like this:
 
+```
+// Context is an interface, so we can implement "secure" variants that
+// rely on private fields to control the actions
+type Context interface {
+    log.Logger
+    WithPermissions(perms ...Actor) Context
+    HasPermission(perm Actor) bool
+    GetPermissions(chain, app string) []Actor
+    IsParent(ctx Context) bool
+    Reset() Context
+    ChainID() string
+    BlockHeight() uint64
+}
+```
 
-## Remove magic
+Yes, it is ugly and just growing.  How about we break it into a few pieces,
+use context.Context from the go standard library and some helper functions.
+
+[context.WithValue](https://godoc.org/context#example-WithValue) will allow us
+to add plenty of information in an immutible way. Now, let's imagine we replace
+the first argument with a simple `context.Context`, how might this look?
+
+```
+// look mom, no collisions in the key space.
+type logKeyType int
+const logKey logKeyType = 1
+
+func SetLogger(ctx context.Context, logger log.Logger) context.Context {
+    return context.WithValue(ctx, logKey, logger)
+}
+
+func GetLogger(ctx context.Context) logger log.Logger {
+    return ctx.Value(logKey)
+}
+```
+
+`Reset` and `IsParent` should be added to some general package (base?).
+`SetChainID`, `GetChainID`, `GetBlockHeight`... should be added to another
+app package.
+
+We could imagine all permisison stuff to be done in one `auth` package that
+provided those interfaces. Any module/domain that wanted to use that convention
+could use it. Anyone that wanted a different convention could use their own.
+You would just need to make sure all modules in your app used the same
+convention (so it may evolve into two or three different ways of building apps
+that are slightly incompatible, but this is flexibility)
+
+Thoughts on this?  Maybe there is a different way (like adding more interfaces
+to context)?  But this seems more like standard lib.  If you like it, I will
+sketch this (and the above section) out more.
+
+## Remove more magic
+
+Although Frey loves magic, decorators, reflection, and meta-classes... Jae is
+most likely correct that they do not make an easy-to-use, and accessible
+framework.
+
+Let's look at the magic that is used and see how to address it:
+
+* State sandbox based on module name
+* Permission sandbox based on module name (and some ibc flag)
+* Routing of tx based on parsing the go-data name (this one is ugly)
+
+Also there but being dealt with:
+
+* Tx layering (addressed above)
+* Viper sprinkled everywhere (to be addressed in develop soon anyway)
+
+Thinking about these....
