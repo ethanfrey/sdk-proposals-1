@@ -8,6 +8,21 @@
 * Context and Permissions (Actors)
     * Hard to use different permissioning systems in different modules
     * Clean up actors to be more generic/extensible?
+    * Maybe we do something like
+
+```Go
+// Actor is just "isolated" by the module it is in.
+// Each module can store anything inside,
+// as long as we have a way to compare for permission checks
+type Actor struct {
+    Module string
+    ID Identifier
+}
+
+type Identifier interface {
+    Equals() bool
+}
+```
 
 * Easier to start up
     * No router, no separation, just one handler
@@ -73,3 +88,74 @@ on other modules.
 For ease of reasoning, we consider all these to be done synchronously,
 calling the router that then directs them.
 Or is there another way to do it?
+
+
+## Rethink handler interface
+
+On init, all registered modules are called here:
+(make sure to isolate this too if needed)
+
+```
+type Module interface {
+    InitValidate(log log.Logger, store state.SimpleDB, vals []*abci.Validator)
+    InitState(l log.Logger, store state.SimpleDB, module, key, value string) (string, error)
+    Tick(l log.Logger, store state.SimpleDB, height int) error
+}
+```
+
+Each handler is only used to process tx by the router (some modules have
+no handlers but get Init)
+
+```
+type Handler interface {
+    CheckTx(ctx Context, store state.SimpleDB, tx Tx) (CheckResult, error)
+    DeliverTx(ctx Context, store state.SimpleDB, tx Tx) (DeliverResult, error)
+}
+```
+
+And a different one for middleware....
+```
+type Decorator interface {
+    CheckTx(ctx Context, store state.SimpleDB, tx Tx, next Checker) (CheckResult, error)
+    DeliverTx(ctx Context, store state.SimpleDB, tx Tx, next Deliverer) (DeliverResult, error)
+}
+```
+
+
+In use:
+
+```
+package coin
+
+func Module(data interface{}) sdk.Module {
+    // ...
+}
+
+// Handler has access to any data we wanted from InitValidate for example,
+// without having to implement it here (even with a no-op)
+func (m Module)Handler() sdk.Handler {
+    // ...
+}
+
+func (m Module)Decorator() sdk.Decorator {
+    // ...
+}
+```
+
+
+in the main function...
+
+```
+    //....
+    smod := stake.Module("foo", 123)
+    sdk.Register(smod)  // this makes sure the init methods are called, but optional
+    shand := smod.Handler()
+
+    // if we don't need the init functions just skip the module
+    chand := coin.Handler("mycoin")
+    r := Routes(
+        {stake.StakeTx{}, shand},
+        {coin.CoinTx{}, chand},
+        // ...
+    )
+```
