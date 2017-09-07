@@ -1,4 +1,4 @@
-package one
+package two
 
 import (
 	"log"
@@ -22,19 +22,38 @@ func NewApp(dbPath string, logger log.Logger) App {
 	}
 }
 
-// SetTx is one tx, the only one we support
-// here we can introduce data.Bytes, which is like []byte
-// but serializes to hex in encoding/json
+// SetTx sets the data at the key
 type SetTx struct {
 	Key   data.Bytes
 	Value data.Bytes
 }
 
+// RemoveTx deletes the contents at a key
+type RemoveTx struct {
+	Key data.Bytes
+}
+
+// simplest way to multiplex with go-wire
+// doesn't support json, but yeah, should work for binary only
+type Tx interface{}
+
+type TxWrapper struct {
+	Tx `json:"unwrap"`
+}
+
+func init() {
+	wire.RegisterInterface(
+		Tx{},
+		wire.ConcreteType{SetTx{}, 0x1},
+		wire.ConcreteType{RemoveTx{}, 0x2},
+	)
+}
+
 // LoadTx handles parsing the binary format, here is a simple intro to go-wire
-func LoadTx(txBytes []byte) (SetTx, error) {
-	var tx SetTx
+func LoadTx(txBytes []byte) (Tx, error) {
+	var tx TxWrapper
 	err := data.FromWire(txBytes, &tx)
-	return tx, err
+	return tx.Tx, err
 }
 
 // Bytes encodes this, must be symetric with LoadTx
@@ -43,8 +62,17 @@ func (s SetTx) Bytes() []byte {
 	// note that this type and the recevier must differ by exactly one points
 	// eg. if you serialize SetTx, you pass *SetTx to the loader
 	// if you serialize *SetTx, you must pass **SetTx to the loader
-	return wire.BinaryBytes(s)
+	// we must also encode it wrapped in order to get the type byte properly
+	return wire.BinaryBytes(TxWrapper{s})
 }
+
+// Bytes encodes this, must be symetric with LoadTx
+func (r RemoveTx) Bytes() []byte {
+	return wire.BinaryBytes(TxWrapper{r})
+}
+
+// TODO: show switching on tx type
+// TODO: show basic tests
 
 // Show the minimal way to handle delivertx
 func (a *App) DeliverTx(txBytes []byte) abci.Result {
