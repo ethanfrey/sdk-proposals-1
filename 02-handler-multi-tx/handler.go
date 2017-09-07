@@ -62,13 +62,6 @@ func (r RemoveTx) ValidateBasic() error {
 	return nil
 }
 
-// LoadTx handles parsing the binary format, here is a simple intro to go-wire
-func LoadTx(txBytes []byte) (Tx, error) {
-	var tx TxWrapper
-	err := data.FromWire(txBytes, &tx)
-	return tx.Tx, err
-}
-
 // DeliverTx applies the tx
 func (h Handler) DeliverTx(ctx sdk.Context, store state.SimpleDB,
 	msg interface{}) (res sdk.DeliverResult, err error) {

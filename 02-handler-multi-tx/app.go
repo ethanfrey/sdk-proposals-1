@@ -2,6 +2,7 @@ package two
 
 import (
 	wire "github.com/tendermint/go-wire"
+	"github.com/tendermint/go-wire/data"
 	"github.com/tendermint/tmlibs/log"
 
 	sdk "github.com/cosmos/cosmos-sdk"
@@ -46,6 +47,13 @@ func init() {
 		wire.ConcreteType{SetTx{}, 0x1},
 		wire.ConcreteType{RemoveTx{}, 0x2},
 	)
+}
+
+// LoadTx handles parsing the binary format, here is a simple intro to go-wire
+func LoadTx(txBytes []byte) (Tx, error) {
+	var tx TxWrapper
+	err := data.FromWire(txBytes, &tx)
+	return tx.Tx, err
 }
 
 // TODO: show basic tests
