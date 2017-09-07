@@ -1,11 +1,12 @@
 package two
 
 import (
-	"log"
-
-	"github.com/cosmos/cosmos-sdk/abci"
 	wire "github.com/tendermint/go-wire"
-	"github.com/tendermint/go-wire/data"
+	"github.com/tendermint/tmlibs/log"
+
+	sdk "github.com/cosmos/cosmos-sdk"
+	"github.com/cosmos/cosmos-sdk/abci"
+	"github.com/cosmos/cosmos-sdk/errors"
 )
 
 // App represents an ABCI app build on the persistence model
@@ -14,29 +15,27 @@ type App struct {
 	// methods, but handles all queries, commit, handshaking, etc and
 	// provides a presistent IAVLTree as backing data
 	*abci.IAVLApp
+	handler sdk.Handler
+	logger  log.Logger
 }
 
 func NewApp(dbPath string, logger log.Logger) App {
 	return App{
 		IAVLApp: abci.NewIAVLApp(dbPath, logger),
+		handler: NewHandler(),
+		logger:  logger,
 	}
 }
 
-// SetTx sets the data at the key
-type SetTx struct {
-	Key   data.Bytes
-	Value data.Bytes
-}
-
-// RemoveTx deletes the contents at a key
-type RemoveTx struct {
-	Key data.Bytes
-}
-
+// Tx is an interface to group all transactions we support.
 // simplest way to multiplex with go-wire
 // doesn't support json, but yeah, should work for binary only
-type Tx interface{}
+type Tx interface {
+	ValidateBasic() error
+}
 
+// TxWrapper is a struct to hold an interface, so we have a place to store
+// it when using the serialization library, can be ignored otherwise
 type TxWrapper struct {
 	Tx `json:"unwrap"`
 }
@@ -49,49 +48,39 @@ func init() {
 	)
 }
 
-// LoadTx handles parsing the binary format, here is a simple intro to go-wire
-func LoadTx(txBytes []byte) (Tx, error) {
-	var tx TxWrapper
-	err := data.FromWire(txBytes, &tx)
-	return tx.Tx, err
-}
-
-// Bytes encodes this, must be symetric with LoadTx
-// Shows how to encode for the client side
-func (s SetTx) Bytes() []byte {
-	// note that this type and the recevier must differ by exactly one points
-	// eg. if you serialize SetTx, you pass *SetTx to the loader
-	// if you serialize *SetTx, you must pass **SetTx to the loader
-	// we must also encode it wrapped in order to get the type byte properly
-	return wire.BinaryBytes(TxWrapper{s})
-}
-
-// Bytes encodes this, must be symetric with LoadTx
-func (r RemoveTx) Bytes() []byte {
-	return wire.BinaryBytes(TxWrapper{r})
-}
-
-// TODO: show switching on tx type
 // TODO: show basic tests
 
-// Show the minimal way to handle delivertx
+// This is the more general DeliverTx, using the errors packager
+// and delegating to a handler.  Now, we can separate all logic in the
+// handler, and this becomes a quite simple adaptor no matter how complex
+// the logic
 func (a *App) DeliverTx(txBytes []byte) abci.Result {
 	tx, err := LoadTx(txBytes)
 	if err != nil {
-		return abci.NewError(err.Error())
+		return errors.Result(err)
 	}
-	db := a.IAVLApp.DeliverDB()
-	db.Set(s.Key, s.Value)
-	return abci.Result{}
+
+	// TODO: what is in a context?
+	ctx := sdk.NewContext(a.logger)
+	res, err := a.handler.DeliverTx(ctx, a.IAVLApp.DeliverState(), tx)
+	if err != nil {
+		return errors.Result(err)
+	}
+	return sdk.ToABCI(res)
 }
 
-// Show the minimal way to handle checktx
+// A more complete CheckTx to mirror the DeliverTx
 func (a *App) CheckTx(txBytes []byte) abci.Result {
 	tx, err := LoadTx(txBytes)
 	if err != nil {
-		return abci.NewError(err.Error())
+		return errors.Result(err)
 	}
-	db := a.IAVLApp.CheckDB()
-	db.Set(s.Key, s.Value)
-	return abci.Result{}
+
+	// TODO: what is in a context?
+	ctx := sdk.NewContext(a.logger)
+	res, err := a.handler.CheckTx(ctx, a.IAVLApp.CheckState(), tx)
+	if err != nil {
+		return errors.Result(err)
+	}
+	return sdk.ToABCI(res)
 }

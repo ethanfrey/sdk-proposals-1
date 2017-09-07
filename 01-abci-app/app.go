@@ -1,11 +1,11 @@
 package one
 
 import (
-	"log"
-
-	"github.com/cosmos/cosmos-sdk/abci"
 	wire "github.com/tendermint/go-wire"
 	"github.com/tendermint/go-wire/data"
+	"github.com/tendermint/tmlibs/log"
+
+	"github.com/cosmos/cosmos-sdk/abci"
 )
 
 // App represents an ABCI app build on the persistence model
@@ -52,7 +52,7 @@ func (a *App) DeliverTx(txBytes []byte) abci.Result {
 	if err != nil {
 		return abci.NewError(err.Error())
 	}
-	db := a.IAVLApp.DeliverDB()
+	db := a.IAVLApp.DeliverState()
 	db.Set(s.Key, s.Value)
 	return abci.Result{}
 }
@@ -63,7 +63,7 @@ func (a *App) CheckTx(txBytes []byte) abci.Result {
 	if err != nil {
 		return abci.NewError(err.Error())
 	}
-	db := a.IAVLApp.CheckDB()
+	db := a.IAVLApp.CheckState()
 	db.Set(s.Key, s.Value)
 	return abci.Result{}
 }
